@@ -12,3 +12,4 @@
 Notes :
 - Sans faire de downsampling, SAC-IA ne fonctionne pas (influence de leaf size sur le nombre de points)
 - Influence des paramètres de SAC-IA
+- Parler de tous les paramètres qu'on peut setter dans ros_pmd (Les treshold qu'on peut setter par exemple).
