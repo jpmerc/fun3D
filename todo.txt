@@ -1,0 +1,14 @@
+-  Construire un modèle avec les 6-7 pcd pris de moi devant l'ordi
+-  Prendre des scans en continue et créer des modèles "online" (stocker les pointCloud et les lire à mesure)
+-  Regarder si c'est possible de faire des tests avec autres descripteurs que FPFH (ex:NARF)
+-  Pourrait être cool de tester avec segmentation ce que ça donne
+
+
+
+
+
+
+
+Notes :
+- Sans faire de downsampling, SAC-IA ne fonctionne pas (influence de leaf size sur le nombre de points)
+- Influence des paramètres de SAC-IA
