@@ -50,18 +50,50 @@ void imgReceived(const sensor_msgs::PointCloud2Ptr& msg){
     //      }
 }
 
+void generateCustomClouds(){
+    pcl::PointCloud<pcl::PointXYZ>::Ptr tmp_target(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr tmp_source(new pcl::PointCloud<pcl::PointXYZ>);
+    for (float z(-1.0); z <= 1.0; z += 0.05)
+      {
+        for (float angle(0.0); angle <= 360.0; angle += 5.0)
+        {
+          pcl::PointXYZ basic_point;
+          basic_point.x = 0.5 * cosf (angles::from_degrees(angle));
+          basic_point.y = sinf (angles::from_degrees(angle));
+          basic_point.z = z;
+          tmp_target->points.push_back(basic_point);
+
+          basic_point.z = basic_point.z + 5;
+          tmp_source->points.push_back (basic_point);
+        }
+      }
+
+    cout << "Taille du PointCloud = " << tmp_target->size() << endl;
+    target_cloud = tmp_target;
+    source_cloud = tmp_source;
+}
+
+
 //==============================================FPFH=========================================================
 
-pcl::PointCloud<pcl::FPFHSignature33>::Ptr calculateFPFH(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud){
-    //Downsample Step (#TODO)
+pcl::PointCloud<pcl::PointXYZ>::Ptr downSample(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud){
+    const float voxel_grid_size = 0.005;
+    pcl::VoxelGrid<pcl::PointXYZ> vox_grid;
+    vox_grid.setInputCloud (cloud);
+    vox_grid.setLeafSize (voxel_grid_size, voxel_grid_size, voxel_grid_size);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr tempCloud (new pcl::PointCloud<pcl::PointXYZ>);
+    vox_grid.filter (*tempCloud);
+    return tempCloud;
+}
 
+pcl::PointCloud<pcl::FPFHSignature33>::Ptr calculateFPFH(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud){
     //Normal estimation
     cout << "Starting normals estimation!" << endl;
     pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
     pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ> ()); //search method
     ne.setInputCloud (cloud);
     ne.setSearchMethod (tree);
-    ne.setRadiusSearch (0.03); //neighbours in 3cm sphere
+    ne.setRadiusSearch (0.02); //neighbours in 3cm sphere
     pcl::PointCloud<pcl::Normal>::Ptr cloud_normals (new pcl::PointCloud<pcl::Normal>); //output
     ne.compute (*cloud_normals);
     //bool sizeComp = cloud_normals->points.size() == cloud_to_merge->points.size();
@@ -72,11 +104,11 @@ pcl::PointCloud<pcl::FPFHSignature33>::Ptr calculateFPFH(pcl::PointCloud<pcl::Po
     cout << "Starting FPFH calculation!" << endl;
     pcl::FPFHEstimation<pcl::PointXYZ, pcl::Normal, pcl::FPFHSignature33> fpfh;
     pcl::search::KdTree<pcl::PointXYZ>::Ptr tree2 (new pcl::search::KdTree<pcl::PointXYZ>);
-    fpfh.setInputCloud (target_cloud);
+    fpfh.setInputCloud (cloud);
     fpfh.setInputNormals (cloud_normals);
     fpfh.setSearchMethod (tree2);
     // IMPORTANT: the radius used here has to be larger than the radius used to estimate the surface normals!!!
-    fpfh.setRadiusSearch (0.05);
+    fpfh.setRadiusSearch (0.02);
     pcl::PointCloud<pcl::FPFHSignature33>::Ptr fpfhs (new pcl::PointCloud<pcl::FPFHSignature33> ()); //Output
     fpfh.compute (*fpfhs);
     cout << "Taille FPFH = " << fpfhs->points.size() << endl;
@@ -88,7 +120,7 @@ void mergePointClouds(pcl::PointCloud<pcl::FPFHSignature33>::Ptr f_src,pcl::Poin
     pcl::SampleConsensusInitialAlignment<pcl::PointXYZ, pcl::PointXYZ, pcl::FPFHSignature33> sac_ia_;
     sac_ia_.setMinSampleDistance(0.05);
     sac_ia_.setMaxCorrespondenceDistance(0.01*0.01);
-    sac_ia_.setMaximumIterations(500);
+    sac_ia_.setMaximumIterations(1000);
 
     //Set target
     sac_ia_.setInputTarget(target_cloud);
@@ -134,6 +166,8 @@ int main(int argc, char **argv)
     pcl::io::loadPCDFile<pcl::PointXYZ> ("/home/jp/Devel/masterWS/src/fun/scans/jp1.pcd", *source_cloud);
     pcl::io::loadPCDFile<pcl::PointXYZ> ("/home/jp/Devel/masterWS/src/fun/scans/jp2.pcd", *target_cloud);
 
+    //generateCustomClouds();
+
     //===========================================TAKE SNAPSHOTS===============================================//
     //    //Take first scan
     //    cout << "First Scan : " << endl;
@@ -156,28 +190,37 @@ int main(int argc, char **argv)
     //    }
 
     //===========================================FPFH===============================================//
-        pcl::PointCloud<pcl::FPFHSignature33>::Ptr features_src;
-        pcl::PointCloud<pcl::FPFHSignature33>::Ptr features_target;
-        features_target = calculateFPFH(target_cloud);
-        features_src = calculateFPFH(source_cloud);
 
-        mergePointClouds(features_src,features_target);
+    //cout << "Before sampling: TARGET= " << target_cloud->points.size() << "  SOURCE= " << source_cloud->points.size() << endl;
+    target_cloud = downSample(target_cloud);
+    source_cloud = downSample(source_cloud);
+    //cout << "After sampling: TARGET= " << target_cloud->points.size() << "  SOURCE= " << source_cloud->points.size() << endl;
+
+    pcl::PointCloud<pcl::FPFHSignature33>::Ptr features_src;
+    pcl::PointCloud<pcl::FPFHSignature33>::Ptr features_target;
+    features_target = calculateFPFH(target_cloud);
+    features_src = calculateFPFH(source_cloud);
+
+    mergePointClouds(features_src,features_target);
 
 
     //===========================================PCL VIEWER===============================================//
 
     boost::shared_ptr<pcl::visualization::PCLVisualizer> pclViewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
     pclViewer->setBackgroundColor (0, 0, 0);
-    //pclViewer->addCoordinateSystem (1.0);
+    pclViewer->addCoordinateSystem (1.0);
 
     pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> green_color(source_cloud, 0, 255, 0);
     pclViewer->addPointCloud<pcl::PointXYZ>(source_cloud,green_color,"source cloud");
     pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "source cloud");
 
-    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> red_color(target_cloud, 0, 0, 255);
-    pclViewer->addPointCloud<pcl::PointXYZ>(target_cloud,red_color,"target cloud");
+    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> blue_color(target_cloud, 0, 0, 255);
+    pclViewer->addPointCloud<pcl::PointXYZ>(target_cloud,blue_color,"target cloud");
     pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "target cloud");
 
+    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> red_color(merged_cloud, 255, 0, 0);
+    pclViewer->addPointCloud<pcl::PointXYZ>(merged_cloud,red_color,"merged cloud");
+    pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "merged cloud");
 
     while (!pclViewer->wasStopped())
     {
