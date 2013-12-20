@@ -516,8 +516,8 @@ int main(int argc, char **argv)
         Eigen::Matrix4f transform = mergePointClouds(source.signature_fpfh,target.signature_fpfh);
         merged_cloud.reset(new pcl::PointCloud<pcl::PointXYZ>);
         pcl::transformPointCloud(*source.cloud,*merged_cloud,transform);
-//        merged_cloud2.reset(new pcl::PointCloud<pcl::PointXYZ>);
-//        pcl::transformPointCloud(*source.features_cloud,*merged_cloud2,temp_transform);
+        //merged_cloud2.reset(new pcl::PointCloud<pcl::PointXYZ>);
+        //pcl::transformPointCloud(*source.features_cloud,*merged_cloud2,temp_transform);
 
 
         // pcl::PointCloud<pcl::PointXYZ> tmp_result = (*merged_cloud).operator +(*target.cloud);
