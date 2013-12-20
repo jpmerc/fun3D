@@ -242,23 +242,22 @@ void setViewerPose (void* viewer_void, const Eigen::Affine3f& viewer_pose){
 
 //==============================================FPFH=========================================================
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr downSample(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud){
+void downSample(CloudAndNormals& data){
     const float voxel_grid_size = 0.005;
     pcl::VoxelGrid<pcl::PointXYZ> vox_grid;
-    vox_grid.setInputCloud (cloud);
+    vox_grid.setInputCloud (data.cloud);
     vox_grid.setLeafSize (voxel_grid_size, voxel_grid_size, voxel_grid_size);
     pcl::PointCloud<pcl::PointXYZ>::Ptr tempCloud (new pcl::PointCloud<pcl::PointXYZ>);
     vox_grid.filter (*tempCloud);
-
+    data.cloud = tempCloud;
     //    pcl::RadiusOutlierRemoval<pcl::PointXYZ> outrem;
     //    outrem.setInputCloud(tempCloud);
     //    outrem.setRadiusSearch(0.05);
     //    outrem.setMinNeighborsInRadius(100);
     //    pcl::PointCloud<pcl::PointXYZ>::Ptr tempCloud2 (new pcl::PointCloud<pcl::PointXYZ>);
     //    outrem.filter (*tempCloud2);
-    return tempCloud;
 }
-pcl::PointCloud<pcl::PointXYZ>::Ptr segment(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, pcl::PointCloud<pcl::Normal>::Ptr normals){
+void segment(CloudAndNormals& data){
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr tempCloud (new pcl::PointCloud<pcl::PointXYZ>);
 
@@ -272,15 +271,15 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr segment(pcl::PointCloud<pcl::PointXYZ>::Ptr 
     seg.setMethodType (pcl::SAC_RANSAC);
     seg.setMaxIterations (20);
     seg.setDistanceThreshold (0.02);
-    seg.setInputCloud (cloud);
-    seg.setInputNormals (normals);
+    seg.setInputCloud (data.cloud);
+    seg.setInputNormals (data.normals);
 
     seg.segment (*inliers_plane, *coefficients_plane);
     //cout << "Plane coefficients: " << *coefficients_plane << std::endl;
 
     // Extract the planar inliers from the input cloud
     pcl::ExtractIndices<pcl::PointXYZ> extract;
-    extract.setInputCloud (cloud);
+    extract.setInputCloud (data.cloud);
     extract.setIndices (inliers_plane);
     extract.setNegative (true);
     extract.filter (*tempCloud);
@@ -288,41 +287,28 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr segment(pcl::PointCloud<pcl::PointXYZ>::Ptr 
     pcl::PointCloud<pcl::Normal>::Ptr cloud_normals2 (new pcl::PointCloud<pcl::Normal>);
     pcl::ExtractIndices<pcl::Normal> extract_normals;
     extract_normals.setNegative (true);
-    extract_normals.setInputCloud (normals);
+    extract_normals.setInputCloud (data.normals);
     extract_normals.setIndices (inliers_plane);
     extract_normals.filter (*cloud_normals2);
 
-    tmpNormals = cloud_normals2;
-
-
-    //    pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
-    //    tree->setInputCloud (cloud);
-    //    std::vector<pcl::PointIndices> cluster_indices;
-    //    pcl::EuclideanClusterExtraction<pcl::PointXYZ> p;
-    //    p.setInputCloud (cloud);
-    //    p.setClusterTolerance (0.05);
-    //    p.setMinClusterSize (100);
-    //    p.setSearchMethod (tree);
-    //    p.extract (cluster_indices);
-
-
-    return tempCloud;
+    data.normals = cloud_normals2;
+    data.cloud = tempCloud;
 }
 
-pcl::PointCloud<pcl::Normal>::Ptr calculateNormals(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud){
+void calculateNormals(CloudAndNormals& data){
     //Normal estimation
     cout << "Starting normals estimation!" << endl;
     pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
     pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ> ()); //search method
-    ne.setInputCloud (cloud);
+    ne.setInputCloud (data.cloud);
     ne.setSearchMethod (tree);
     ne.setRadiusSearch (0.03); //neighbours in 3cm sphere
     pcl::PointCloud<pcl::Normal>::Ptr cloud_normals (new pcl::PointCloud<pcl::Normal>); //output
     ne.compute (*cloud_normals);
+    data.normals = cloud_normals;
     //bool sizeComp = cloud_normals->points.size() == cloud_to_merge->points.size();
     //cout << "Taille Normales = " << cloud_normals->points.size() << "   Taille PointCloud = " << cloud->points.size() << endl;
     // cloud_normals->points.size () should have the same size as the input cloud->points.size ()*
-    return cloud_normals;
 }
 
 pcl::PointCloud<pcl::FPFHSignature33>::Ptr calculateFPFH(CloudAndNormals& data){
@@ -336,25 +322,18 @@ pcl::PointCloud<pcl::FPFHSignature33>::Ptr calculateFPFH(CloudAndNormals& data){
     fpfh_estimation->setRadiusSearch (0.01);
 
     std::vector<float> scale_values; //set the multi scales
-    //scale_values.push_back(0.005);
     scale_values.push_back(0.01);
-    scale_values.push_back(0.03);
+    scale_values.push_back(0.015);
+    scale_values.push_back(0.02);
     pcl::MultiscaleFeaturePersistence<pcl::PointXYZ, pcl::FPFHSignature33> feature_persistence;
     feature_persistence.setScalesVector (scale_values);
     feature_persistence.setAlpha (1.2f);
     feature_persistence.setFeatureEstimator (fpfh_estimation);
     feature_persistence.setDistanceMetric (pcl::CS);
 
-
-    // IMPORTANT: the radius used here has to be larger than the radius used to estimate the surface normals!!!
-
     pcl::PointCloud<pcl::FPFHSignature33>::Ptr output_features (new pcl::PointCloud<pcl::FPFHSignature33> ()); //Output
     boost::shared_ptr<std::vector<int> > output_indices (new std::vector<int> ());
     feature_persistence.determinePersistentFeatures (*output_features, output_indices);
-
-
-    //    pcl::PointCloud<pcl::PointXYZ>::Ptr tempCloud(new pcl::PointCloud<pcl::PointXYZ>);
-    //    pcl::PointCloud<pcl::Normal>::Ptr tempNormals(new pcl::PointCloud<pcl::Normal>);
 
     pcl::ExtractIndices<pcl::PointXYZ> extract;
     extract.setInputCloud (data.cloud);
@@ -362,16 +341,6 @@ pcl::PointCloud<pcl::FPFHSignature33>::Ptr calculateFPFH(CloudAndNormals& data){
     extract.setNegative (false);
     extract.filter (*data.features_cloud);
 
-    //    pcl::ExtractIndices<pcl::Normal> extract2;
-    //    extract2.setInputCloud (data.normals);
-    //    extract2.setIndices (output_indices);
-    //    extract2.setNegative (false);
-    //    extract2.filter (*tempNormals);
-
-    //    data.cloud = tempCloud;
-    //    data.normals = tempNormals;
-
-    //fpfh.compute (*output_features);
     cout << "Taille FPFH = " << output_features->points.size() << endl;
     return output_features;
 }
@@ -383,7 +352,7 @@ Eigen::Matrix4f mergePointClouds(pcl::PointCloud<pcl::FPFHSignature33>::Ptr f_sr
     sac_ia_.setMinSampleDistance(0.05);
     sac_ia_.setMaxCorrespondenceDistance(maxDistanceSACIA);
     sac_ia_.setMaximumIterations(1000);//default value
-    sac_ia_.setNumberOfSamples(2); //default value = 3
+    sac_ia_.setNumberOfSamples(4); //default value = 3
     sac_ia_.setCorrespondenceRandomness(10); //default value
 
     //Set target
@@ -488,14 +457,12 @@ int main(int argc, char **argv)
 
         //Preprocessing
         cout << "Before sampling: TARGET= " << target.cloud->points.size() << "  SOURCE= " << source.cloud->points.size() << endl;
-        target.cloud = downSample(target.cloud);
-        source.cloud = downSample(source.cloud);
-        target.normals = calculateNormals(target.cloud);
-        source.normals = calculateNormals(source.cloud);
-        //        target.cloud = segment(target.cloud,target.normals);
-        //        target.normals = tmpNormals;
-        //        source.cloud = segment(source.cloud,source.normals);
-        //        source.normals = tmpNormals;
+        downSample(target);
+        downSample(source);
+        calculateNormals(target);
+        calculateNormals(source);
+//        segment(target);
+//        segment(source);
         cout << "After sampling: TARGET= " << target.cloud->points.size() << "  SOURCE= " << source.cloud->points.size() << endl;
 
 
