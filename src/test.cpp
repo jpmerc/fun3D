@@ -35,6 +35,7 @@
 #include <pcl/range_image/range_image.h>
 #include <pcl/visualization/range_image_visualizer.h>
 #include <pcl/features/multiscale_feature_persistence.h>
+#include <pcl/filters/statistical_outlier_removal.h>
 using namespace std;
 
 const float DOWN_SAMPLE_VOXELS_LEAF_SIZE = 0.005;
@@ -42,10 +43,10 @@ double NORMAL_SPHERE_RADIUS = 0.03;
 float FPFH_PERSISTENCE_SCALES[] = {0.01,0.015,0.02};
 float FPFH_PERSISTENCE_ALPHA = 1.2f;
 double SAC_IA_MAXIMUM_DISTANCE = 1.0;
-float SAC_IA_MINIMUM_SAMPLING_DISTANCE = 0.05;
+float SAC_IA_MINIMUM_SAMPLING_DISTANCE = 0.02;
 int SAC_IA_MAXIMUM_ITERATIONS = 1000;
-int SAC_IA_NUMBER_OF_SAMPLES = 4;
-int SAC_IA_CORRESPONDANCE_RANDOMNESS = 10;
+int SAC_IA_NUMBER_OF_SAMPLES = 15;
+int SAC_IA_CORRESPONDANCE_RANDOMNESS = 20;
 
 bool firstCapture = false;
 bool capturePointCloud = false;
@@ -53,6 +54,7 @@ bool capturePointCloud = false;
 struct CloudAndNormals{
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud;
     pcl::PointCloud<pcl::PointXYZ>::Ptr features_cloud;
+    pcl::PointCloud<pcl::FPFHSignature33>::Ptr signature_fpfh;
     pcl::PointCloud<pcl::Normal>::Ptr normals;
     boost::shared_ptr<pcl::RangeImage> range_image;
 };
@@ -60,13 +62,14 @@ struct CloudAndNormals{
 CloudAndNormals target;
 CloudAndNormals source;
 pcl::PointCloud<pcl::PointXYZ>::Ptr merged_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+pcl::PointCloud<pcl::PointXYZ>::Ptr merged_cloud2(new pcl::PointCloud<pcl::PointXYZ>);
 pcl::PointCloud<pcl::Normal>::Ptr tmpNormals(new pcl::PointCloud<pcl::Normal>);
 vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> cloud_vector;
 bool sData = true;
 bool tData = true;
 bool mData = true;
 int l_count = 0;
-
+Eigen::Matrix4f temp_transform;
 
 
 void pressAnyKey();
@@ -253,6 +256,9 @@ void setViewerPose (void* viewer_void, const Eigen::Affine3f& viewer_pose){
 //==============================================FPFH=========================================================
 
 void downSample(CloudAndNormals& data){
+    vector<int> index;
+    removeNaNFromPointCloud(*data.cloud,*data.cloud,index);
+
     pcl::VoxelGrid<pcl::PointXYZ> vox_grid;
     vox_grid.setInputCloud (data.cloud);
     vox_grid.setLeafSize (DOWN_SAMPLE_VOXELS_LEAF_SIZE, DOWN_SAMPLE_VOXELS_LEAF_SIZE, DOWN_SAMPLE_VOXELS_LEAF_SIZE);
@@ -354,6 +360,35 @@ pcl::PointCloud<pcl::FPFHSignature33>::Ptr calculateFPFH(CloudAndNormals& data){
     return output_features;
 }
 
+void filterFeatures(CloudAndNormals& data){
+    pcl::PointCloud<pcl::PointXYZ>::Ptr tempCloud(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::FPFHSignature33>::Ptr tempFeatures (new pcl::PointCloud<pcl::FPFHSignature33> ());
+
+    pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sorfilter(true); // Initializing with true will allow us to extract the removed indices
+    sorfilter.setInputCloud (data.features_cloud);
+    sorfilter.setMeanK (30);
+    sorfilter.setStddevMulThresh (1.0);
+    sorfilter.filter (*tempCloud);
+
+    pcl::IndicesConstPtr output_indices = sorfilter.getRemovedIndices();
+    cout << "Extracted " << output_indices->size() << " points from FPFH" << endl;
+
+    pcl::ExtractIndices<pcl::PointXYZ> extract;
+    extract.setInputCloud (data.features_cloud);
+    extract.setIndices (output_indices);
+    extract.setNegative (true);
+    extract.filter (*tempCloud);
+    data.features_cloud = tempCloud;
+
+    pcl::ExtractIndices<pcl::FPFHSignature33> extract2;
+    extract2.setInputCloud (data.signature_fpfh);
+    extract2.setIndices (output_indices);
+    extract2.setNegative (true);
+    extract2.filter (*tempFeatures);
+    data.signature_fpfh = tempFeatures;
+
+}
+
 
 Eigen::Matrix4f mergePointClouds(pcl::PointCloud<pcl::FPFHSignature33>::Ptr f_src,pcl::PointCloud<pcl::FPFHSignature33>::Ptr f_target){
     pcl::SampleConsensusInitialAlignment<pcl::PointXYZ, pcl::PointXYZ, pcl::FPFHSignature33> sac_ia_;
@@ -380,6 +415,7 @@ Eigen::Matrix4f mergePointClouds(pcl::PointCloud<pcl::FPFHSignature33>::Ptr f_sr
 
     float sac_score = sac_ia_.getFitnessScore(SAC_IA_MAXIMUM_DISTANCE);
     Eigen::Matrix4f sac_transformation = sac_ia_.getFinalTransformation();
+    temp_transform = sac_transformation;
 
     cout << "SAC-IA Transformation Score = " << sac_score << endl;
 
@@ -470,18 +506,19 @@ int main(int argc, char **argv)
 //        segment(source);
         cout << "After sampling: TARGET= " << target.cloud->points.size() << "  SOURCE= " << source.cloud->points.size() << endl;
 
-
-
         //Features Calculation (FPFH)
-        pcl::PointCloud<pcl::FPFHSignature33>::Ptr features_src;
-        pcl::PointCloud<pcl::FPFHSignature33>::Ptr features_target;
-        features_target = calculateFPFH(target);
-        features_src = calculateFPFH(source);
+        target.signature_fpfh = calculateFPFH(target);
+        source.signature_fpfh = calculateFPFH(source);
+        filterFeatures(target);
+        filterFeatures(source);
 
         //Coarse alignment
-        Eigen::Matrix4f transform = mergePointClouds(features_src,features_target);
+        Eigen::Matrix4f transform = mergePointClouds(source.signature_fpfh,target.signature_fpfh);
         merged_cloud.reset(new pcl::PointCloud<pcl::PointXYZ>);
         pcl::transformPointCloud(*source.cloud,*merged_cloud,transform);
+//        merged_cloud2.reset(new pcl::PointCloud<pcl::PointXYZ>);
+//        pcl::transformPointCloud(*source.features_cloud,*merged_cloud2,temp_transform);
+
 
         // pcl::PointCloud<pcl::PointXYZ> tmp_result = (*merged_cloud).operator +(*target.cloud);
         // merged_cloud.reset(new pcl::PointCloud<pcl::PointXYZ>(tmp_result));
