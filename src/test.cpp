@@ -37,6 +37,16 @@
 #include <pcl/features/multiscale_feature_persistence.h>
 using namespace std;
 
+const float DOWN_SAMPLE_VOXELS_LEAF_SIZE = 0.005;
+double NORMAL_SPHERE_RADIUS = 0.03;
+float FPFH_PERSISTENCE_SCALES[] = {0.01,0.015,0.02};
+float FPFH_PERSISTENCE_ALPHA = 1.2f;
+double SAC_IA_MAXIMUM_DISTANCE = 1.0;
+float SAC_IA_MINIMUM_SAMPLING_DISTANCE = 0.05;
+int SAC_IA_MAXIMUM_ITERATIONS = 1000;
+int SAC_IA_NUMBER_OF_SAMPLES = 4;
+int SAC_IA_CORRESPONDANCE_RANDOMNESS = 10;
+
 bool firstCapture = false;
 bool capturePointCloud = false;
 
@@ -49,15 +59,15 @@ struct CloudAndNormals{
 
 CloudAndNormals target;
 CloudAndNormals source;
-
 pcl::PointCloud<pcl::PointXYZ>::Ptr merged_cloud(new pcl::PointCloud<pcl::PointXYZ>);
 pcl::PointCloud<pcl::Normal>::Ptr tmpNormals(new pcl::PointCloud<pcl::Normal>);
 vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> cloud_vector;
-
 bool sData = true;
 bool tData = true;
 bool mData = true;
 int l_count = 0;
+
+
 
 void pressAnyKey();
 string convertInt(int number);
@@ -243,10 +253,9 @@ void setViewerPose (void* viewer_void, const Eigen::Affine3f& viewer_pose){
 //==============================================FPFH=========================================================
 
 void downSample(CloudAndNormals& data){
-    const float voxel_grid_size = 0.005;
     pcl::VoxelGrid<pcl::PointXYZ> vox_grid;
     vox_grid.setInputCloud (data.cloud);
-    vox_grid.setLeafSize (voxel_grid_size, voxel_grid_size, voxel_grid_size);
+    vox_grid.setLeafSize (DOWN_SAMPLE_VOXELS_LEAF_SIZE, DOWN_SAMPLE_VOXELS_LEAF_SIZE, DOWN_SAMPLE_VOXELS_LEAF_SIZE);
     pcl::PointCloud<pcl::PointXYZ>::Ptr tempCloud (new pcl::PointCloud<pcl::PointXYZ>);
     vox_grid.filter (*tempCloud);
     data.cloud = tempCloud;
@@ -302,7 +311,7 @@ void calculateNormals(CloudAndNormals& data){
     pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ> ()); //search method
     ne.setInputCloud (data.cloud);
     ne.setSearchMethod (tree);
-    ne.setRadiusSearch (0.03); //neighbours in 3cm sphere
+    ne.setRadiusSearch (NORMAL_SPHERE_RADIUS); //neighbours in 3cm sphere
     pcl::PointCloud<pcl::Normal>::Ptr cloud_normals (new pcl::PointCloud<pcl::Normal>); //output
     ne.compute (*cloud_normals);
     data.normals = cloud_normals;
@@ -321,13 +330,13 @@ pcl::PointCloud<pcl::FPFHSignature33>::Ptr calculateFPFH(CloudAndNormals& data){
     fpfh_estimation->setSearchMethod (tree);
     fpfh_estimation->setRadiusSearch (0.01);
 
-    std::vector<float> scale_values; //set the multi scales
-    scale_values.push_back(0.01);
-    scale_values.push_back(0.015);
-    scale_values.push_back(0.02);
+    std::vector<float> scale_values(FPFH_PERSISTENCE_SCALES,FPFH_PERSISTENCE_SCALES + sizeof(FPFH_PERSISTENCE_SCALES)/sizeof(float)); //set the multi scales
+//    scale_values.push_back(0.01);
+//    scale_values.push_back(0.015);
+//    scale_values.push_back(0.02);
     pcl::MultiscaleFeaturePersistence<pcl::PointXYZ, pcl::FPFHSignature33> feature_persistence;
     feature_persistence.setScalesVector (scale_values);
-    feature_persistence.setAlpha (1.2f);
+    feature_persistence.setAlpha (FPFH_PERSISTENCE_ALPHA);
     feature_persistence.setFeatureEstimator (fpfh_estimation);
     feature_persistence.setDistanceMetric (pcl::CS);
 
@@ -348,12 +357,11 @@ pcl::PointCloud<pcl::FPFHSignature33>::Ptr calculateFPFH(CloudAndNormals& data){
 
 Eigen::Matrix4f mergePointClouds(pcl::PointCloud<pcl::FPFHSignature33>::Ptr f_src,pcl::PointCloud<pcl::FPFHSignature33>::Ptr f_target){
     pcl::SampleConsensusInitialAlignment<pcl::PointXYZ, pcl::PointXYZ, pcl::FPFHSignature33> sac_ia_;
-    float maxDistanceSACIA = 1.0;
-    sac_ia_.setMinSampleDistance(0.05);
-    sac_ia_.setMaxCorrespondenceDistance(maxDistanceSACIA);
-    sac_ia_.setMaximumIterations(1000);//default value
-    sac_ia_.setNumberOfSamples(4); //default value = 3
-    sac_ia_.setCorrespondenceRandomness(10); //default value
+    sac_ia_.setMinSampleDistance(SAC_IA_MINIMUM_SAMPLING_DISTANCE);
+    sac_ia_.setMaxCorrespondenceDistance(SAC_IA_MAXIMUM_DISTANCE);
+    sac_ia_.setMaximumIterations(SAC_IA_MAXIMUM_ITERATIONS);
+    sac_ia_.setNumberOfSamples(SAC_IA_NUMBER_OF_SAMPLES);
+    sac_ia_.setCorrespondenceRandomness(SAC_IA_CORRESPONDANCE_RANDOMNESS);
 
     //Set target
     sac_ia_.setInputTarget(target.features_cloud);
