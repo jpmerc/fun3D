@@ -378,7 +378,7 @@ Eigen::Matrix4f mergePointClouds(pcl::PointCloud<pcl::FPFHSignature33>::Ptr f_sr
     cout << "Alignment Done" << endl;
     //   pcl::PointCloud<pcl::PointXYZ>::Ptr tmp_cloud(new pcl::PointCloud<pcl::PointXYZ>(registration_output));
 
-    float sac_score = sac_ia_.getFitnessScore(maxDistanceSACIA);
+    float sac_score = sac_ia_.getFitnessScore(SAC_IA_MAXIMUM_DISTANCE);
     Eigen::Matrix4f sac_transformation = sac_ia_.getFinalTransformation();
 
     cout << "SAC-IA Transformation Score = " << sac_score << endl;
@@ -396,9 +396,6 @@ Eigen::Matrix4f mergePointClouds(pcl::PointCloud<pcl::FPFHSignature33>::Ptr f_sr
 
     Eigen::Matrix4f icp_transformation = icp.getFinalTransformation();
     //pcl::PointCloud<pcl::PointXYZ>::Ptr tmp_cloud(new pcl::PointCloud<pcl::PointXYZ>(Final));
-
-
-
 
     return icp_transformation;
 }
