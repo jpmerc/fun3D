@@ -54,6 +54,7 @@ bool capturePointCloud = false;
 struct CloudAndNormals{
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud;
     pcl::PointCloud<pcl::PointXYZ>::Ptr features_cloud;
+    pcl::PointCloud<pcl::PointXYZ>::Ptr segmented_planes;
     pcl::PointCloud<pcl::FPFHSignature33>::Ptr signature_fpfh;
     pcl::PointCloud<pcl::Normal>::Ptr normals;
     boost::shared_ptr<pcl::RangeImage> range_image;
@@ -273,7 +274,7 @@ void downSample(CloudAndNormals& data){
     //    outrem.filter (*tempCloud2);
 }
 void segment(CloudAndNormals& data){
-
+    cout << "Starting Planes Segmentation!" << endl;
     pcl::PointCloud<pcl::PointXYZ>::Ptr tempCloud (new pcl::PointCloud<pcl::PointXYZ>);
 
     pcl::SACSegmentationFromNormals<pcl::PointXYZ, pcl::Normal> seg;
@@ -285,7 +286,7 @@ void segment(CloudAndNormals& data){
     seg.setNormalDistanceWeight (0.1);
     seg.setMethodType (pcl::SAC_RANSAC);
     seg.setMaxIterations (20);
-    seg.setDistanceThreshold (0.02);
+    seg.setDistanceThreshold (0.05);
     seg.setInputCloud (data.cloud);
     seg.setInputNormals (data.normals);
 
@@ -298,6 +299,13 @@ void segment(CloudAndNormals& data){
     extract.setIndices (inliers_plane);
     extract.setNegative (true);
     extract.filter (*tempCloud);
+
+    //Extracted Planes
+    pcl::ExtractIndices<pcl::PointXYZ> extract1;
+    extract1.setInputCloud (data.cloud);
+    extract1.setIndices (inliers_plane);
+    extract1.setNegative (false);
+    extract1.filter (*data.segmented_planes);
 
     pcl::PointCloud<pcl::Normal>::Ptr cloud_normals2 (new pcl::PointCloud<pcl::Normal>);
     pcl::ExtractIndices<pcl::Normal> extract_normals;
@@ -473,9 +481,11 @@ int main(int argc, char **argv)
     target.cloud = target_cloud;
     target.features_cloud = target_cloud;
     target.normals = target_normals;
+    target.segmented_planes = target_cloud;
     source.cloud = source_cloud;
     source.features_cloud = source_cloud;
     source.normals = source_normals;
+    source.segmented_planes = source_cloud;
     //    ros::Subscriber sub_image = n.subscribe("/camera/points",1,imgReceived);
     //    boost::thread spinThread(spinFunction);
 
@@ -502,20 +512,20 @@ int main(int argc, char **argv)
         downSample(source);
         calculateNormals(target);
         calculateNormals(source);
-//        segment(target);
-//        segment(source);
+        segment(target);
+        segment(source);
         cout << "After sampling: TARGET= " << target.cloud->points.size() << "  SOURCE= " << source.cloud->points.size() << endl;
 
         //Features Calculation (FPFH)
-        target.signature_fpfh = calculateFPFH(target);
-        source.signature_fpfh = calculateFPFH(source);
-        filterFeatures(target);
-        filterFeatures(source);
+//        target.signature_fpfh = calculateFPFH(target);
+//        source.signature_fpfh = calculateFPFH(source);
+//        filterFeatures(target);
+//        filterFeatures(source);
 
-        //Coarse alignment
-        Eigen::Matrix4f transform = mergePointClouds(source.signature_fpfh,target.signature_fpfh);
-        merged_cloud.reset(new pcl::PointCloud<pcl::PointXYZ>);
-        pcl::transformPointCloud(*source.cloud,*merged_cloud,transform);
+//        //Coarse alignment
+//        Eigen::Matrix4f transform = mergePointClouds(source.signature_fpfh,target.signature_fpfh);
+//        merged_cloud.reset(new pcl::PointCloud<pcl::PointXYZ>);
+//        pcl::transformPointCloud(*source.cloud,*merged_cloud,transform);
         //merged_cloud2.reset(new pcl::PointCloud<pcl::PointXYZ>);
         //pcl::transformPointCloud(*source.features_cloud,*merged_cloud2,temp_transform);
 
@@ -542,9 +552,13 @@ int main(int argc, char **argv)
         pclViewer->addPointCloud<pcl::PointXYZ>(target.cloud,blue_color,"target cloud");
         pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "target cloud");
 
-        pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> red_color(merged_cloud, 255, 0, 0);
-        pclViewer->addPointCloud<pcl::PointXYZ>(merged_cloud,red_color,"merged cloud");
+        pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> red_color(source.segmented_planes, 255, 0, 0);
+        pclViewer->addPointCloud<pcl::PointXYZ>(source.segmented_planes,red_color,"merged cloud");
         pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "merged cloud");
+
+        pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> yellow_color(target.segmented_planes, 255, 255, 0);
+        pclViewer->addPointCloud<pcl::PointXYZ>(target.segmented_planes,yellow_color,"merged cloud2");
+        pclViewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "merged cloud2");
 
 //        pcl::visualization::PointCloudColorHandlerCustom<pcl::PointWithRange> lol_color(target.range_image, 255, 255, 0);
 //        pclViewer->addPointCloud<pcl::PointWithRange>(target.range_image,lol_color,"range image");
