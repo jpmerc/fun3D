@@ -47,6 +47,10 @@ float SAC_IA_MINIMUM_SAMPLING_DISTANCE = 0.02;
 int SAC_IA_MAXIMUM_ITERATIONS = 1000;
 int SAC_IA_NUMBER_OF_SAMPLES = 15;
 int SAC_IA_CORRESPONDANCE_RANDOMNESS = 20;
+double SEGMENTATION_NORMAL_DISTANCE_WEIGHT = 0.0;
+int SEGMENTATION_MAXIMUM_ITERATIONS = 20;
+double SEGMENTATION_DISTANCE_TRESHOLD = 0.01;
+
 
 bool firstCapture = false;
 bool capturePointCloud = false;
@@ -75,6 +79,7 @@ Eigen::Matrix4f temp_transform;
 
 void pressAnyKey();
 string convertInt(int number);
+pcl::IndicesConstPtr getIndicesToFilterPointCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr inCloud);
 
 void imgReceived(const sensor_msgs::PointCloud2Ptr& msg){
     if(firstCapture){
@@ -283,10 +288,10 @@ void segment(CloudAndNormals& data){
 
     seg.setOptimizeCoefficients (true);
     seg.setModelType (pcl::SACMODEL_NORMAL_PLANE);
-    seg.setNormalDistanceWeight (0.1);
+    seg.setNormalDistanceWeight (SEGMENTATION_NORMAL_DISTANCE_WEIGHT);
     seg.setMethodType (pcl::SAC_RANSAC);
-    seg.setMaxIterations (20);
-    seg.setDistanceThreshold (0.05);
+    seg.setMaxIterations (SEGMENTATION_MAXIMUM_ITERATIONS);
+    seg.setDistanceThreshold (SEGMENTATION_DISTANCE_TRESHOLD);
     seg.setInputCloud (data.cloud);
     seg.setInputNormals (data.normals);
 
@@ -307,14 +312,32 @@ void segment(CloudAndNormals& data){
     extract1.setNegative (false);
     extract1.filter (*data.segmented_planes);
 
-    pcl::PointCloud<pcl::Normal>::Ptr cloud_normals2 (new pcl::PointCloud<pcl::Normal>);
+    pcl::PointCloud<pcl::Normal>::Ptr cloud_normals (new pcl::PointCloud<pcl::Normal>);
     pcl::ExtractIndices<pcl::Normal> extract_normals;
     extract_normals.setNegative (true);
     extract_normals.setInputCloud (data.normals);
     extract_normals.setIndices (inliers_plane);
-    extract_normals.filter (*cloud_normals2);
+    extract_normals.filter (*cloud_normals);
 
-    data.normals = cloud_normals2;
+
+//    //Filter the result
+//    pcl::PointCloud<pcl::PointXYZ>::Ptr tempCloud2(new pcl::PointCloud<pcl::PointXYZ>);
+//    pcl::PointCloud<pcl::Normal>::Ptr cloud_normals2(new pcl::PointCloud<pcl::Normal>);
+
+//    pcl::IndicesConstPtr filterIndices = getIndicesToFilterPointCloud(tempCloud);
+//    pcl::ExtractIndices<pcl::PointXYZ> extract2;
+//    extract2.setInputCloud (tempCloud);
+//    extract2.setIndices (filterIndices);
+//    extract2.setNegative (true);
+//    extract2.filter (*tempCloud2);
+
+//    pcl::ExtractIndices<pcl::Normal> extract3;
+//    extract3.setInputCloud (cloud_normals);
+//    extract3.setIndices (filterIndices);
+//    extract3.setNegative (true);
+//    extract3.filter (*cloud_normals2);
+
+    data.normals = cloud_normals;
     data.cloud = tempCloud;
 }
 
@@ -394,6 +417,22 @@ void filterFeatures(CloudAndNormals& data){
     extract2.setNegative (true);
     extract2.filter (*tempFeatures);
     data.signature_fpfh = tempFeatures;
+
+}
+
+pcl::IndicesConstPtr getIndicesToFilterPointCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr inCloud){
+    pcl::PointCloud<pcl::PointXYZ>::Ptr outCloud(new pcl::PointCloud<pcl::PointXYZ>);
+
+    pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sorfilter(true); // Initializing with true will allow us to extract the removed indices
+    sorfilter.setInputCloud (inCloud);
+    sorfilter.setMeanK (20);
+    sorfilter.setStddevMulThresh (1.0);
+    sorfilter.filter (*outCloud);
+
+    pcl::IndicesConstPtr output_indices = sorfilter.getRemovedIndices();
+    cout << "Extracted " << output_indices->size() << " points from FPFH" << endl;
+
+    return output_indices;
 
 }
 
