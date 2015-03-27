@@ -51,7 +51,7 @@
           <param name="signal_strength_threshold" value="200" /> <!--below=invalid-->
           <param name="consistency_check" value="true" />
           <param name="consistency_check_threshold" value="0.98" /> <!--below=invalid-->
-          <param name="bilateral_filter" value="true" />
+          <param name="bilateral_filter" value="false" />
           <param name="sigma_spatial" value="2.5" />
           <param name="sigma_range" value="25" />
           <param name="kernel_size" value="5" />

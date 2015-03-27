@@ -22,4 +22,5 @@ include_directories(include
 add_executable(test src/test.cpp)
 target_link_libraries(test ${catkin_LIBRARIES})
 
-
+add_executable(view src/view.cpp)
+target_link_libraries(view ${catkin_LIBRARIES} libvtkCommon.so libvtkFiltering.so)
